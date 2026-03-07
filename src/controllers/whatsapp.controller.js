@@ -38,7 +38,7 @@ export const receiveMessage = async ( req, res ) => {
 
     const from = message.from;
     const text = message.text?.body?.trim();
-    if (!text) return res.sendStatus(200);
+    if (!text) return;
 
     console.log(`📩 De: ${from} | Mensaje: ${text}`);
 
@@ -79,6 +79,20 @@ export const receiveMessage = async ( req, res ) => {
         text: '⚠️ No tienes una cuenta configurada. Ingresa a la app y crea tu cuenta principal.',
       });
       return res.sendStatus(200);
+    }
+
+    // ✅  Detección manual de comandos
+    const nombre = user.full_name?.split(' ')[0] ?? 'amigo';
+    const textLower = text.toLowerCase();
+    const esConsultaBalance = ['balance', 'saldo', 'cuanto tengo', 'cuánto tengo', 'mi saldo', 'mi balance'].some(cmd => textLower.includes(cmd));
+
+    if (esConsultaBalance) {
+      const emoji = account.balance >= 0 ? '📈' : '📉';
+      await sendWhatsAppMessage({
+        to: from,
+        text: `${emoji} *Balance de ${nombre}*\n\n💼 Cuenta: ${account.name}\n💵 S/. ${account.balance.toFixed(2)}\n\n_Actualizado al ${new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' })}_`,
+      });
+      return;
     }
 
     // 4️⃣ Respuesta inmediata mientras procesa
@@ -147,8 +161,4 @@ export const receiveMessage = async ( req, res ) => {
     console.error('❌ Error:', err);
     return res.sendStatus(500);
   }
-};
-
-export const sendMessage = async (req, res) => {
-  res.json({ ok: true, message: 'sendMessage pendiente' });
 };
