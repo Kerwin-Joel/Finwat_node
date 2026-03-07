@@ -72,8 +72,7 @@ export const receiveMessage = async ( req, res ) => {
 
     // 3️⃣ Obtener cuenta principal
     const account = await getDefaultAccount( user.id );
-    // obtenemos el primer nombre para personalizar mensajes
-    const nombre = user.full_name?.split(' ')[0] ?? 'amigo';
+    
     if (!account) {
       await sendWhatsAppMessage({
         to: from,
@@ -94,11 +93,10 @@ export const receiveMessage = async ( req, res ) => {
     console.log('🤖 Gemini:', JSON.stringify(intent));
 
     // 5️⃣ Procesar según intent
-    if ( intent.tipo_mensaje === 'consulta_balance' ) {
-      const emoji = account.balance >= 0 ? '📈' : '📉';
+    if (intent.tipo_mensaje === 'consulta_balance') {
       await sendWhatsAppMessage({
         to: from,
-        text: `${emoji} *Balance de ${nombre}*\n\n💼 Cuenta: ${account.name}\n💵 Balance: S/. ${account.balance.toFixed(2)}\n\n_Actualizado al ${new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' })}_`,
+        text: `📊 Tu balance actual es S/. ${account.balance.toFixed(2)}`,
       });
       return res.sendStatus(200);
     }
@@ -141,7 +139,7 @@ export const receiveMessage = async ( req, res ) => {
 
     await sendWhatsAppMessage({
       to: from,
-      text: `✅ *${resultados.length === 1 ? 'Movimiento registrado' : `${resultados.length} movimientos registrados`}* — ${fecha}\n\n${resumen}${resumenTotales}\n\n_Escribe *"balance"* para ver tu saldo actual, ${nombre}_ 📊`,
+      text: `✅ Registrado exitosamente:\n\n${resumen}\n\n_Escribe "balance" para ver tu saldo_`,
     });
 
     return res.sendStatus(200);
