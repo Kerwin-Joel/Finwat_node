@@ -50,5 +50,16 @@ export const saveTransaction = async ({ userId, accountId, transaction }) => {
     .single();
 
   if (error) throw error;
+
+  // ✅ Actualizar balance en accounts
+  const balanceChange = transaction.tipo === 'ingreso_dinero' ? transaction.monto : -transaction.monto;
+
+  const { error: balanceError } = await supabase.rpc('update_account_balance', {
+    p_account_id: accountId,
+    p_amount: balanceChange,
+  });
+
+  if (balanceError) throw balanceError;
+
   return data;
 };
