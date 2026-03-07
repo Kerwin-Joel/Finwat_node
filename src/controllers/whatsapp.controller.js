@@ -1,72 +1,9 @@
-// import { sendWhatsAppMessage } from "../services/whatsapp.service.js";
-// import {
-//   storeIncomingMessage,
-//   storeOutgoingMessage,
-// } from "../services/conversation.service.js";
-// import { analyzeIntent } from "../services/ai.service.js";
-
-// // 🔹 Verificación del webhook (Meta)
-// export const verifyWebhook = (req, res) => {
-//   console.log("🔍 QUERY:", req.query);
-//   console.log("🔐 VERIFY_TOKEN ENV:", process.env.VERIFY_TOKEN);
-
-//   const mode = req.query["hub.mode"];
-//   const token = req.query["hub.verify_token"];
-//   const challenge = req.query["hub.challenge"];
-
-//   if (mode === "subscribe" && token === process.env.VERIFY_TOKEN) {
-//     console.log("✅ Webhook verificado correctamente");
-//     return res.status(200).send(challenge);
-//   }
-
-//   console.log("❌ Falló la verificación del webhook");
-//   return res.sendStatus(403);
-// };
-
-// // 🔹 Recibir mensajes entrantes
-// export const receiveMessage = async (req, res) => {
-//   try {
-//     const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-//     if (!message) return res.sendStatus(200);
-
-//     const from = message.from;
-//     const text = message.text?.body;
-//     console.log("📩 Mensaje:", text);
-//     console.log( "->  DE:", from );
-    
-//     // K -> ANALIZAMOS TEXTO CON IA
-//     const intent = await analyzeIntent(text);
-//     console.log(intent);
-//     // 1️⃣ Guardar entrada
-//     storeIncomingMessage({ from, text });
-
-//     // 2️⃣ Responder
-//     const reply = `👋 Recibí: "${text}"`;
-//     await sendWhatsAppMessage({ to: from, text: reply });
-
-//     // 3️⃣ Guardar salida
-//     storeOutgoingMessage({ to: from, text: reply });
-
-//     return res.sendStatus(200);
-//   } catch (err) {
-//     console.error(err);
-//     return res.sendStatus(500);
-//   }
-// };
-
-// // 🔹 Enviar mensajes (API propia) -- por ahora no se usa
-// export const sendMessage = async (req, res) => {
-//   res.json({
-//     ok: true,
-//     message: "sendMessage pendiente de implementación"
-//   });
-// };
-
-
 import { sendWhatsAppMessage } from '../services/whatsapp.service.js';
 import { analyzeIntent } from '../services/ai.service.js';
 import { findUserByPhone, getDefaultAccount, saveTransaction } from '../services/user.service.js';
 import { checkRateLimit } from '../services/ratelimit.service.js';
+
+const processedMessages = new Set();
 
 export const verifyWebhook = (req, res) => {
   const mode = req.query['hub.mode'];
@@ -80,10 +17,24 @@ export const verifyWebhook = (req, res) => {
   return res.sendStatus(403);
 };
 
-export const receiveMessage = async (req, res) => {
+export const receiveMessage = async ( req, res ) => {
+  // ✅ Responder 200 inmediatamente para evitar reintentos de Meta
+  res.sendStatus(200);
   try {
     const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    if (!message || message.type !== 'text') return res.sendStatus(200);
+    if ( !message || message.type !== 'text' ) return res.sendStatus( 200 );
+    
+    const messageId = message.id;
+
+    // ✅ Si ya procesamos este mensaje, ignorarlo
+    if (processedMessages.has(messageId)) {
+      console.log(`⚠️ Mensaje duplicado ignorado: ${messageId}`);
+      return;
+    }
+    processedMessages.add(messageId);
+
+    // Limpiar mensajes viejos cada 1000 para no llenar memoria
+    if (processedMessages.size > 1000) processedMessages.clear();
 
     const from = message.from;
     const text = message.text?.body?.trim();
@@ -128,6 +79,13 @@ export const receiveMessage = async (req, res) => {
       });
       return res.sendStatus(200);
     }
+
+    // 4️⃣ Respuesta inmediata mientras procesa
+    await sendWhatsAppMessage({
+      to: from,
+      text: '⏳ Analizando tu mensaje...',
+    });
+
 
     // 4️⃣ Analizar mensaje con Gemini
     const intent = await analyzeIntent(text);
