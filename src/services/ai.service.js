@@ -30,6 +30,8 @@ REGLAS CRÍTICAS:
 8. Moneda PEN por defecto si no se especifica
 9. NUNCA devuelvas desconocido si hay montos en el mensaje
 10. Responde ÚNICAMENTE con JSON válido, sin markdown, sin texto adicional
+11. "junta" es siempre un ingreso_dinero — es un sistema de ahorro grupal popular en Latinoamérica
+12. "me pagaron", "me dieron", "me depositaron", "me cayó" → siempre ingreso_dinero
 
 ESTRUCTURA DEL JSON:
 {
