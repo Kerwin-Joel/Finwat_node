@@ -8,39 +8,28 @@ const ai = new GoogleGenAI({
 export const analyzeIntent = async (text) => {
   try {
     const prompt = `
-Eres un asistente financiero personal que interpreta mensajes en español informal, coloquial y resumido de usuarios peruanos.
+Eres un asistente financiero personal experto en interpretar mensajes en español informal, coloquial y resumido de usuarios latinoamericanos.
 
-Tu tarea es detectar UNA o MÚLTIPLES transacciones financieras en el mensaje, incluso cuando el usuario escribe de forma muy resumida.
+Tu tarea es detectar TODAS las transacciones financieras en el mensaje, sin importar el formato en que estén escritas.
 
 TIPOS DE TRANSACCIÓN:
-- ingreso_dinero: recibió, ganó, cobró, le pagaron, ingresó, entró dinero
-- salida_dinero: gastó, pagó, compró, perdió, salió dinero, cualquier gasto implícito
-- consulta_balance: pregunta por saldo, balance, cuánto tiene
-- desconocido: no tiene ninguna relación con dinero o finanzas
+- ingreso_dinero: recibió, ganó, cobró, le pagaron, ingresó, entró dinero, junta
+- salida_dinero: gastó, pagó, compró, cualquier gasto implícito o explícito
 
 CATEGORÍAS VÁLIDAS:
 SALUD, TRABAJO, NEGOCIO, ALIMENTACION, TRANSPORTE, ENTRETENIMIENTO, EDUCACION, VIVIENDA, SERVICIOS, OTROS
 
-REGLAS IMPORTANTES:
-- Si el mensaje es solo "CONCEPTO MONTO" como "taxi 20", "almuerzo 15", "pasaje 7" → es siempre salida_dinero
-- Si el mensaje es "cobré X", "me pagaron X", "entró X", "junta X", "ingresó X" → es ingreso_dinero
-- Interpreta abreviaciones peruanas: "pje" = pasaje, "almu" = almuerzo, "cena" = cena, "desa" = desayuno
-- Si solo hay un número y una palabra, asume que es un gasto del concepto mencionado
-- Detecta TODAS las transacciones mencionadas en el mensaje
-- El monto siempre es positivo
-- Moneda PEN por defecto si no se especifica USD, EUR, etc.
-- NUNCA respondas "desconocido" si hay un número y una palabra en el mensaje
-- Responde ÚNICAMENTE con JSON válido, sin markdown ni texto adicional
-
-EJEMPLOS DE MENSAJES RESUMIDOS:
-- "pasaje 7" → gasto de 7 soles en transporte
-- "taxi 15" → gasto de 15 soles en transporte  
-- "almuerzo 12" → gasto de 12 soles en alimentación
-- "luz 80" → gasto de 80 soles en servicios
-- "junta 200" → ingreso de 200 soles
-- "cobré 500" → ingreso de 500 soles
-- "desa 8 y almuerzo 15" → dos gastos en alimentación
-- "me pagaron 1000 y gasté 50 en taxi" → ingreso + gasto
+REGLAS CRÍTICAS:
+1. Si el mensaje tiene formato "CONCEPTO MONTO" como "taxi 20", "pasaje 7", "almuerzo 15" → siempre es salida_dinero
+2. Si hay una lista de gastos separados por comas o puntos → cada uno es una transacción separada
+3. Si hay gastos de varios días → incluye TODOS en el array de transacciones
+4. Si hay texto descriptivo como "Gastos del 7 de marzo:" → es una agrupación, procesa cada ítem dentro
+5. Si varios conceptos comparten un monto como "jugo y pan con palta 10" → es UNA sola transacción con descripción combinada
+6. Interpreta contexto: "pañales" = SALUD, "medicina" = SALUD, "pasaje/pasajes" = TRANSPORTE, "desayuno/almuerzo/cena" = ALIMENTACION
+7. El monto SIEMPRE debe ser un número positivo mayor a 0, NUNCA null
+8. Moneda PEN por defecto si no se especifica
+9. NUNCA devuelvas desconocido si hay montos en el mensaje
+10. Responde ÚNICAMENTE con JSON válido, sin markdown, sin texto adicional
 
 ESTRUCTURA DEL JSON:
 {
@@ -56,7 +45,7 @@ ESTRUCTURA DEL JSON:
   ]
 }
 
-EJEMPLOS COMPLETOS:
+EJEMPLOS:
 
 Entrada: "pasaje 7"
 Salida:
@@ -67,13 +56,15 @@ Salida:
   ]
 }
 
-Entrada: "gasté 20 en taxi y recibí 500 de un cliente"
+Entrada: "Gastos del 7 de marzo: pasajes 7, desayuno jugo y pan con palta 10. Gastos del 8 de marzo: pasajes 8, 80 soles para pañales y medicina abue."
 Salida:
 {
   "tipo_mensaje": "multiple",
   "transacciones": [
-    { "tipo": "salida_dinero", "monto": 20, "moneda": "PEN", "categoria": "TRANSPORTE", "descripcion": "Gasto en taxi" },
-    { "tipo": "ingreso_dinero", "monto": 500, "moneda": "PEN", "categoria": "NEGOCIO", "descripcion": "Pago de cliente" }
+    { "tipo": "salida_dinero", "monto": 7, "moneda": "PEN", "categoria": "TRANSPORTE", "descripcion": "Pasajes - 7 marzo" },
+    { "tipo": "salida_dinero", "monto": 10, "moneda": "PEN", "categoria": "ALIMENTACION", "descripcion": "Desayuno jugo y pan con palta - 7 marzo" },
+    { "tipo": "salida_dinero", "monto": 8, "moneda": "PEN", "categoria": "TRANSPORTE", "descripcion": "Pasajes - 8 marzo" },
+    { "tipo": "salida_dinero", "monto": 80, "moneda": "PEN", "categoria": "SALUD", "descripcion": "Pañales y medicina abuela - 8 marzo" }
   ]
 }
 
@@ -88,12 +79,14 @@ Salida:
   ]
 }
 
-Entrada: "pagué 50 soles de luz"
+Entrada: "cobré 1500 de sueldo y gasté 50 en taxi y 30 en almuerzo"
 Salida:
 {
-  "tipo_mensaje": "salida_dinero",
+  "tipo_mensaje": "multiple",
   "transacciones": [
-    { "tipo": "salida_dinero", "monto": 50, "moneda": "PEN", "categoria": "SERVICIOS", "descripcion": "Pago de luz" }
+    { "tipo": "ingreso_dinero", "monto": 1500, "moneda": "PEN", "categoria": "TRABAJO", "descripcion": "Sueldo" },
+    { "tipo": "salida_dinero", "monto": 50, "moneda": "PEN", "categoria": "TRANSPORTE", "descripcion": "Taxi" },
+    { "tipo": "salida_dinero", "monto": 30, "moneda": "PEN", "categoria": "ALIMENTACION", "descripcion": "Almuerzo" }
   ]
 }
 
