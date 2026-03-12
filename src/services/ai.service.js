@@ -32,7 +32,7 @@ REGLAS CRÍTICAS:
 10. Responde ÚNICAMENTE con JSON válido, sin markdown, sin texto adicional
 11. "junta" es siempre un ingreso_dinero — es un sistema de ahorro grupal popular en Latinoamérica
 12. "me pagaron", "me dieron", "me depositaron", "me cayó" → siempre ingreso_dinero
-
+13. Si el usuario menciona una fecha como "ayer", "el lunes", "7 de marzo", "el martes pasado" → conviértela a formato YYYY-MM-DD. El año actual es 2026. Si no se menciona fecha, usa null.
 ESTRUCTURA DEL JSON:
 {
   "tipo_mensaje": "<ingreso_dinero | salida_dinero | multiple | consulta_balance | desconocido>",
@@ -42,7 +42,8 @@ ESTRUCTURA DEL JSON:
       "monto": <number>,
       "moneda": "<PEN | USD | EUR>",
       "categoria": "<categoria>",
-      "descripcion": "<descripcion clara y breve>"
+      "descripcion": "<descripcion clara y breve>",
+      "fecha": "<YYYY-MM-DD o null si no se menciona>"
     }
   ]
 }
@@ -89,6 +90,16 @@ Salida:
     { "tipo": "ingreso_dinero", "monto": 1500, "moneda": "PEN", "categoria": "TRABAJO", "descripcion": "Sueldo" },
     { "tipo": "salida_dinero", "monto": 50, "moneda": "PEN", "categoria": "TRANSPORTE", "descripcion": "Taxi" },
     { "tipo": "salida_dinero", "monto": 30, "moneda": "PEN", "categoria": "ALIMENTACION", "descripcion": "Almuerzo" }
+  ]
+}
+
+Entrada: "Gastos del 7 de marzo: pasajes 7, almuerzo 10"
+Salida:
+{
+  "tipo_mensaje": "multiple",
+  "transacciones": [
+    { "tipo": "salida_dinero", "monto": 7, "moneda": "PEN", "categoria": "TRANSPORTE", "descripcion": "Pasajes - 7 marzo", "fecha": "2026-03-07" },
+    { "tipo": "salida_dinero", "monto": 10, "moneda": "PEN", "categoria": "ALIMENTACION", "descripcion": "Almuerzo - 7 marzo", "fecha": "2026-03-07" }
   ]
 }
 

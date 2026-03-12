@@ -42,7 +42,7 @@ export const saveTransaction = async ({ userId, accountId, transaction }) => {
       currency: transaction.moneda ?? 'PEN',
       category: transaction.categoria?.toUpperCase() ?? 'OTROS',
       description: transaction.descripcion,
-      transaction_date: new Date().toISOString().split('T')[0],
+      transaction_date: transaction.fecha ?? new Date().toISOString().split('T')[0],
       source: 'whatsapp',
       status: 'completed',
     })
