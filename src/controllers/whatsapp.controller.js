@@ -22,7 +22,7 @@ export const receiveMessage = async ( req, res ) => {
   res.sendStatus(200);
   try {
     const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    if ( !message || message.type !== 'text' ) return res.sendStatus( 200 );
+    if ( !message || message.type !== 'text' ) return;
     
     const messageId = message.id;
 
@@ -49,7 +49,7 @@ export const receiveMessage = async ( req, res ) => {
         to: from,
         text: '⏳ Estás enviando demasiados mensajes. Espera un momento e intenta de nuevo.',
       });
-      return res.sendStatus(200);
+      return;
     }
 
     // 2️⃣ Verificar usuario registrado
@@ -59,7 +59,7 @@ export const receiveMessage = async ( req, res ) => {
         to: from,
         text: '👋 Hola! No estás registrado en Finwat.\n\nRegístrate en nuestra app para empezar a gestionar tus finanzas por WhatsApp 📱\n\nhttps://finwat.app',
       });
-      return res.sendStatus(200);
+      return;
     }
 
     if (!user.is_active) {
@@ -67,7 +67,7 @@ export const receiveMessage = async ( req, res ) => {
         to: from,
         text: '⚠️ Tu cuenta está desactivada. Contacta soporte para más información.',
       });
-      return res.sendStatus(200);
+      return;
     }
 
     // 3️⃣ Obtener cuenta principal
@@ -78,7 +78,7 @@ export const receiveMessage = async ( req, res ) => {
         to: from,
         text: '⚠️ No tienes una cuenta configurada. Ingresa a la app y crea tu cuenta principal.',
       });
-      return res.sendStatus(200);
+      return;
     }
 
     // ✅  Detección manual de comandos
@@ -96,8 +96,10 @@ export const receiveMessage = async ( req, res ) => {
     }
     const esConfirmacion = ['listo', 'hecho', 'ok', 'pagado', 'completado', 'listo!', 'hecho!'].some(cmd => textLower === cmd || textLower.startsWith(cmd));
 
-if (esConfirmacion) {
+    if ( esConfirmacion ) {
+    console.log('🔔 Confirmando reminder para user.id:', user.id);
     const confirmed = await confirmReminderByWhatsApp(user.id);
+    console.log('🔔 Reminder confirmado:', confirmed);
     if (confirmed) {
         await sendWhatsAppMessage({
             to: from,
@@ -129,7 +131,7 @@ if (esConfirmacion) {
         to: from,
         text: `📊 Tu balance actual es S/. ${account.balance.toFixed(2)}`,
       });
-      return res.sendStatus(200);
+      return;
     }
 
     if (intent.tipo_mensaje === 'desconocido') {
@@ -137,7 +139,7 @@ if (esConfirmacion) {
         to: from,
         text: '🤔 No entendí bien tu mensaje. Puedes decirme algo como:\n\n• "Gasté 50 en almuerzo"\n• "Recibí 200 de un cliente"\n• "¿Cuál es mi balance?"',
       });
-      return res.sendStatus(200);
+      return;
     }
 
     // 6️⃣ Guardar transacciones
@@ -160,7 +162,7 @@ if (esConfirmacion) {
         to: from,
         text: '⚠️ No pude registrar la transacción. Intenta con un mensaje más claro.',
       });
-      return res.sendStatus(200);
+      return;
     }
 
     const resumen = resultados.map(tx => {
@@ -173,7 +175,7 @@ if (esConfirmacion) {
       text: `✅ Registrado exitosamente:\n\n${resumen}\n\n_Escribe "balance" para ver tu saldo_`,
     });
 
-    return res.sendStatus(200);
+    return;
   } catch (err) {
     console.error('❌ Error:', err);
     return res.sendStatus(500);
