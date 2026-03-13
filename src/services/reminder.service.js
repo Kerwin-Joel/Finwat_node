@@ -82,10 +82,9 @@ export const markReminderNotified = async (id) => {
 };
 
 export const confirmReminderByWhatsApp = async (userId) => {
-    // Buscar el último recordatorio pendiente del usuario
-        console.log('🔍 Buscando reminder pendiente para userId:', userId);
-
-    const { data } = await supabase
+    console.log('🔍 Buscando reminder pendiente para userId:', userId);
+    
+    const { data, error: fetchError } = await supabase
         .from('reminders')
         .select('id')
         .eq('user_id', userId)
@@ -93,11 +92,11 @@ export const confirmReminderByWhatsApp = async (userId) => {
         .order('due_date', { ascending: true })
         .limit(1)
         .single();
-    console.log('🔍 Resultado:', data, 'Error:', error);
 
+    console.log('🔍 Resultado:', data, 'Error:', fetchError);
     if (!data) return null;
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('reminders')
         .update({
             status: 'completed',
@@ -105,7 +104,7 @@ export const confirmReminderByWhatsApp = async (userId) => {
             updated_at: new Date().toISOString()
         })
         .eq('id', data.id);
-    console.log('✅ Update error:', updateError);
 
+    console.log('✅ Update error:', updateError);
     return data.id;
 };
