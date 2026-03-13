@@ -3,8 +3,10 @@ import { analyzeIntent } from '../services/ai.service.js';
 import { findUserByPhone, getDefaultAccount, saveTransaction } from '../services/user.service.js';
 import { checkRateLimit } from '../services/ratelimit.service.js';
 import { confirmReminderByWhatsApp } from '../services/reminder.service.js';
+import { getPendingRemindersByUser, confirmReminderById } from '../services/reminder.service.js';
 
 const processedMessages = new Set();
+const reminderSessions = new Map()
 
 export const verifyWebhook = (req, res) => {
   const mode = req.query['hub.mode'];
@@ -97,21 +99,79 @@ export const receiveMessage = async ( req, res ) => {
     }
     const esConfirmacion = ['listo', 'hecho', 'ok', 'pagado', 'completado', 'listo!', 'hecho!'].some(cmd => textLower === cmd || textLower.startsWith(cmd));
 
-    if ( esConfirmacion ) {
-    console.log('🔔 Confirmando reminder para user.id:', user.id);
-    const confirmed = await confirmReminderByWhatsApp(user.id);
-    console.log('🔔 Reminder confirmado:', confirmed);
-    if (confirmed) {
+    // Verificar si el usuario está esperando seleccionar un recordatorio
+if (reminderSessions.has(from)) {
+    const pending = reminderSessions.get(from);
+    const num = parseInt(textLower.trim());
+
+    if (!isNaN(num) && num >= 1 && num <= pending.length) {
+        const selected = pending[num - 1];
+        const success = await confirmReminderById(selected.id);
+        reminderSessions.delete(from);
+
         await sendWhatsAppMessage({
             to: from,
-            text: `✅ *¡Perfecto ${nombre}!*\n\nTu recordatorio fue marcado como completado 🎉\n\n_Puedes ver todos tus recordatorios en la app Finwat_`,
+            text: success
+                ? `✅ *¡Listo ${nombre}!*\n\n"${selected.title}" marcado como completado 🎉`
+                : `❌ Hubo un error al confirmar. Intenta desde la app.`,
         });
+        return;
     } else {
+        // Respuesta inválida, mostrar lista de nuevo
+        const lista = pending.map((r, i) => {
+            const fecha = new Date(r.due_date).toLocaleDateString('es-PE', { day: '2-digit', month: 'short' });
+            const monto = r.amount ? ` — S/. ${Number(r.amount).toFixed(2)}` : '';
+            return `${i + 1}. ${r.title}${monto} (${fecha})`;
+        }).join('\n');
+
         await sendWhatsAppMessage({
             to: from,
-            text: `👍 Entendido ${nombre}! No tienes recordatorios pendientes por confirmar.`,
+            text: `Por favor responde con un número del 1 al ${pending.length}:\n\n${lista}`,
         });
+        return;
     }
+}
+
+// Confirmación inicial
+if (esConfirmacion) {
+    const pending = await getPendingRemindersByUser(user.id);
+
+    if (pending.length === 0) {
+        await sendWhatsAppMessage({
+            to: from,
+            text: `👍 No tienes recordatorios pendientes ${nombre}.`,
+        });
+        return;
+    }
+
+    if (pending.length === 1) {
+        // Solo uno → confirmar directo
+        const success = await confirmReminderById(pending[0].id);
+        await sendWhatsAppMessage({
+            to: from,
+            text: success
+                ? `✅ *¡Listo ${nombre}!*\n\n"${pending[0].title}" marcado como completado 🎉`
+                : `❌ Hubo un error al confirmar. Intenta desde la app.`,
+        });
+        return;
+    }
+
+    // Varios → preguntar cuál
+    reminderSessions.set(from, pending);
+
+    // Limpiar sesión después de 5 minutos
+    setTimeout(() => reminderSessions.delete(from), 5 * 60 * 1000);
+
+    const lista = pending.map((r, i) => {
+        const fecha = new Date(r.due_date).toLocaleDateString('es-PE', { day: '2-digit', month: 'short' });
+        const monto = r.amount ? ` — S/. ${Number(r.amount).toFixed(2)}` : '';
+        return `${i + 1}. ${r.title}${monto} (${fecha})`;
+    }).join('\n');
+
+    await sendWhatsAppMessage({
+        to: from,
+        text: `🔔 Tienes ${pending.length} recordatorios pendientes ${nombre}.\n\n¿Cuál quieres marcar como completado?\n\n${lista}\n\nResponde con el número.`,
+    });
     return;
 }
 
@@ -179,6 +239,5 @@ export const receiveMessage = async ( req, res ) => {
     return;
   } catch (err) {
     console.error('❌ Error:', err);
-    return res.sendStatus(500);
   }
 };

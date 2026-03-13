@@ -2,7 +2,21 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY
+    process.env.SUPABASE_SERVICE_KEY,
+    {
+        auth: {
+            autoRefreshToken: false,
+            persistSession: false
+        },
+        db: {
+            schema: 'public'
+        },
+        global: {
+            headers: {
+                'x-supabase-auth-bypass-rls': 'true'
+            }
+        }
+    }
 );
 
 export const getPendingRemindersToNotify = async () => {
@@ -82,10 +96,9 @@ export const markReminderNotified = async (id) => {
 };
 
 export const confirmReminderByWhatsApp = async (userId) => {
-    // Buscar el último recordatorio pendiente del usuario
-        console.log('🔍 Buscando reminder pendiente para userId:', userId);
-
-    const { data } = await supabase
+    console.log('🔍 Buscando reminder pendiente para userId:', userId);
+    
+    const { data, error: fetchError } = await supabase
         .from('reminders')
         .select('id')
         .eq('user_id', userId)
@@ -93,11 +106,11 @@ export const confirmReminderByWhatsApp = async (userId) => {
         .order('due_date', { ascending: true })
         .limit(1)
         .single();
-    console.log('🔍 Resultado:', data, 'Error:', error);
 
+    console.log('🔍 Resultado:', data, 'Error:', fetchError);
     if (!data) return null;
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('reminders')
         .update({
             status: 'completed',
@@ -105,7 +118,32 @@ export const confirmReminderByWhatsApp = async (userId) => {
             updated_at: new Date().toISOString()
         })
         .eq('id', data.id);
-    console.log('✅ Update error:', updateError);
 
+    console.log('✅ Update error:', updateError);
     return data.id;
+};
+
+export const getPendingRemindersByUser = async (userId) => {
+    const { data, error } = await supabase
+        .from('reminders')
+        .select('id, title, due_date, amount')
+        .eq('user_id', userId)
+        .eq('status', 'pending')
+        .order('due_date', { ascending: true });
+
+    if (error || !data) return [];
+    return data;
+};
+
+export const confirmReminderById = async (id) => {
+    const { error } = await supabase
+        .from('reminders')
+        .update({
+            status: 'completed',
+            whatsapp_confirmed: true,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+    return !error;
 };
