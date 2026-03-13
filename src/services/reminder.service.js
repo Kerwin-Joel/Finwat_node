@@ -49,11 +49,17 @@ export const getPendingRemindersToNotify = async () => {
         // Si tiene hora específica, verificar que sea la hora actual (±5 min)
         if (reminder.due_time) {
             const [hh, mm] = reminder.due_time.split(':').map(Number);
+            
+            // Usar hora UTC del servidor para comparar
+            const nowUTC = new Date();
             const notifyHour = new Date();
-            notifyHour.setHours(hh, mm, 0, 0);
-            const diffMs = Math.abs(today - notifyHour);
-            console.log(`⏰ due_time=${reminder.due_time} | now=${today.getHours()}:${today.getMinutes()} | diffMs=${diffMs}ms | pass=${diffMs <= 30 * 60 * 1000}`);
-            if (diffMs > 30 * 60 * 1000) continue; // ← 30 min para pruebas
+            const offset = parseInt(process.env.TIMEZONE_OFFSET ?? '-5');
+            notifyHour.setUTCHours(hh - offset, mm, 0, 0);
+            
+            const diffMs = Math.abs(nowUTC - notifyHour);
+            console.log(`⏰ due_time=${reminder.due_time} | nowUTC=${nowUTC.getUTCHours()}:${nowUTC.getUTCMinutes()} | diffMs=${diffMs}ms | pass=${diffMs <= 30 * 60 * 1000}`);
+            
+            if (diffMs > 30 * 60 * 1000) continue;
         }
 
         results.push(reminder);
