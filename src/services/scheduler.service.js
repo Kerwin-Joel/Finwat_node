@@ -40,7 +40,7 @@ const buildReminderMessage = (reminder) => {
 
 export const startScheduler = () => {
     // Corre cada hora en punto
-    cron.schedule('0 * * * *', async () => {
+    cron.schedule('* * * * *', async () => {
         console.log('⏰ Scheduler: verificando recordatorios...');
         try {
             const reminders = await getPendingRemindersToNotify();
