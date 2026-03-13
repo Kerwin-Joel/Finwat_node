@@ -52,7 +52,8 @@ export const getPendingRemindersToNotify = async () => {
             const notifyHour = new Date();
             notifyHour.setHours(hh, mm, 0, 0);
             const diffMs = Math.abs(today - notifyHour);
-            if (diffMs > 5 * 60 * 1000) continue; // fuera de ventana de 5 min
+            console.log(`⏰ due_time=${reminder.due_time} | now=${today.getHours()}:${today.getMinutes()} | diffMs=${diffMs}ms | pass=${diffMs <= 30 * 60 * 1000}`);
+            if (diffMs > 30 * 60 * 1000) continue; // ← 30 min para pruebas
         }
 
         results.push(reminder);
