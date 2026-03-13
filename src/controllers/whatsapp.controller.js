@@ -94,6 +94,23 @@ export const receiveMessage = async ( req, res ) => {
       });
       return;
     }
+    const esConfirmacion = ['listo', 'hecho', 'ok', 'pagado', 'completado', 'listo!', 'hecho!'].some(cmd => textLower === cmd || textLower.startsWith(cmd));
+
+if (esConfirmacion) {
+    const confirmed = await confirmReminderByWhatsApp(user.id);
+    if (confirmed) {
+        await sendWhatsAppMessage({
+            to: from,
+            text: `✅ *¡Perfecto ${nombre}!*\n\nTu recordatorio fue marcado como completado 🎉\n\n_Puedes ver todos tus recordatorios en la app Finwat_`,
+        });
+    } else {
+        await sendWhatsAppMessage({
+            to: from,
+            text: `👍 Entendido ${nombre}! No tienes recordatorios pendientes por confirmar.`,
+        });
+    }
+    return;
+}
 
     // 4️⃣ Respuesta inmediata mientras procesa
     await sendWhatsAppMessage({
