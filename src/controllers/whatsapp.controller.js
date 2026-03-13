@@ -2,6 +2,7 @@ import { sendWhatsAppMessage } from '../services/whatsapp.service.js';
 import { analyzeIntent } from '../services/ai.service.js';
 import { findUserByPhone, getDefaultAccount, saveTransaction } from '../services/user.service.js';
 import { checkRateLimit } from '../services/ratelimit.service.js';
+import { confirmReminderByWhatsApp } from '../services/reminder.service.js';
 
 const processedMessages = new Set();
 
