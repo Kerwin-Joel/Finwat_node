@@ -2,28 +2,13 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY,
-    {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        },
-        db: {
-            schema: 'public'
-        },
-        global: {
-            headers: {
-                'x-supabase-auth-bypass-rls': 'true'
-            }
-        }
-    }
+    process.env.SUPABASE_SERVICE_KEY
 );
 
 export const getPendingRemindersToNotify = async () => {
-    const today = new Date();
+    const now = new Date();
     const results = [];
 
-    // Traer todos los recordatorios pendientes
     const { data: reminders, error } = await supabase
         .from('reminders')
         .select('*, profiles(phone, full_name)')
@@ -36,30 +21,43 @@ export const getPendingRemindersToNotify = async () => {
     }
 
     for (const reminder of reminders) {
-        const dueDate = new Date(reminder.due_date);
-        const notifyDate = new Date(dueDate);
-        notifyDate.setDate(notifyDate.getDate() - reminder.notify_advance);
+        const todayUTC = now.toISOString().split('T')[0];
 
-        // Normalizar a medianoche para comparar solo fechas
-        const todayStr = today.toISOString().split('T')[0];
+        // Calcular fecha de notificación
+        const dueDate = new Date(reminder.due_date + 'T00:00:00Z');
+        const notifyDate = new Date(dueDate);
+        notifyDate.setUTCDate(notifyDate.getUTCDate() - reminder.notify_advance);
         const notifyStr = notifyDate.toISOString().split('T')[0];
 
-        if (notifyStr !== todayStr) continue;
+        if (notifyStr !== todayUTC) continue;
 
-        // Si tiene hora específica, verificar que sea la hora actual (±5 min)
         if (reminder.due_time) {
+            // Con hora: verificar ventana de ±30 min en UTC
             const [hh, mm] = reminder.due_time.split(':').map(Number);
-            
-            // Usar hora UTC del servidor para comparar
-            const nowUTC = new Date();
             const notifyHour = new Date();
-            const offset = parseInt(process.env.TIMEZONE_OFFSET ?? '-5');
-            notifyHour.setUTCHours(hh - offset, mm, 0, 0);
-            
-            const diffMs = Math.abs(nowUTC - notifyHour);
-            console.log(`⏰ due_time=${reminder.due_time} | nowUTC=${nowUTC.getUTCHours()}:${nowUTC.getUTCMinutes()} | diffMs=${diffMs}ms | pass=${diffMs <= 30 * 60 * 1000}`);
-            
+            notifyHour.setUTCHours(hh, mm, 0, 0);
+            const diffMs = Math.abs(now - notifyHour);
+
+            console.log(`⏰ due_time=${reminder.due_time} | nowUTC=${now.getUTCHours()}:${String(now.getUTCMinutes()).padStart(2,'0')} | diffMs=${diffMs}ms | pass=${diffMs <= 30 * 60 * 1000}`);
+
             if (diffMs > 30 * 60 * 1000) continue;
+
+            // Ya fue notificado hoy?
+            if (reminder.last_notified_at) {
+                const lastStr = new Date(reminder.last_notified_at).toISOString().split('T')[0];
+                if (lastStr === todayUTC) continue;
+            }
+        } else {
+            // Sin hora: notificar solo entre 08:00-08:05 UTC
+            const utcHour = now.getUTCHours();
+            const utcMin = now.getUTCMinutes();
+            if (!(utcHour === 8 && utcMin < 5)) continue;
+
+            // Ya fue notificado hoy?
+            if (reminder.last_notified_at) {
+                const lastStr = new Date(reminder.last_notified_at).toISOString().split('T')[0];
+                if (lastStr === todayUTC) continue;
+            }
         }
 
         results.push(reminder);
@@ -69,8 +67,6 @@ export const getPendingRemindersToNotify = async () => {
 };
 
 export const markReminderNotified = async (id) => {
-    // Si no es recurrente, lo completamos
-    // Si es recurrente, avanzamos la fecha al siguiente ciclo
     const { data: reminder } = await supabase
         .from('reminders')
         .select('recurrence, due_date')
@@ -82,52 +78,29 @@ export const markReminderNotified = async (id) => {
     if (reminder.recurrence === 'none') {
         await supabase
             .from('reminders')
-            .update({ status: 'completed', updated_at: new Date().toISOString() })
+            .update({
+                status: 'completed',
+                last_notified_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
             .eq('id', id);
         return;
     }
 
-    // Calcular próxima fecha
-    const next = new Date(reminder.due_date);
-    if (reminder.recurrence === 'daily')   next.setDate(next.getDate() + 1);
-    if (reminder.recurrence === 'weekly')  next.setDate(next.getDate() + 7);
-    if (reminder.recurrence === 'monthly') next.setMonth(next.getMonth() + 1);
+    // Calcular próxima fecha para recurrentes
+    const next = new Date(reminder.due_date + 'T00:00:00Z');
+    if (reminder.recurrence === 'daily')   next.setUTCDate(next.getUTCDate() + 1);
+    if (reminder.recurrence === 'weekly')  next.setUTCDate(next.getUTCDate() + 7);
+    if (reminder.recurrence === 'monthly') next.setUTCMonth(next.getUTCMonth() + 1);
 
     await supabase
         .from('reminders')
         .update({
             due_date: next.toISOString().split('T')[0],
+            last_notified_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         })
         .eq('id', id);
-};
-
-export const confirmReminderByWhatsApp = async (userId) => {
-    console.log('🔍 Buscando reminder pendiente para userId:', userId);
-    
-    const { data, error: fetchError } = await supabase
-        .from('reminders')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('status', 'pending')
-        .order('due_date', { ascending: true })
-        .limit(1)
-        .single();
-
-    console.log('🔍 Resultado:', data, 'Error:', fetchError);
-    if (!data) return null;
-
-    const { error: updateError } = await supabase
-        .from('reminders')
-        .update({
-            status: 'completed',
-            whatsapp_confirmed: true,
-            updated_at: new Date().toISOString()
-        })
-        .eq('id', data.id);
-
-    console.log('✅ Update error:', updateError);
-    return data.id;
 };
 
 export const getPendingRemindersByUser = async (userId) => {
@@ -153,4 +126,32 @@ export const confirmReminderById = async (id) => {
         .eq('id', id);
 
     return !error;
+};
+
+export const confirmReminderByWhatsApp = async (userId) => {
+    console.log('🔍 Buscando reminder pendiente para userId:', userId);
+
+    const { data, error: fetchError } = await supabase
+        .from('reminders')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('status', 'pending')
+        .order('due_date', { ascending: true })
+        .limit(1)
+        .single();
+
+    console.log('🔍 Resultado:', data, 'Error:', fetchError);
+    if (!data) return null;
+
+    const { error: updateError } = await supabase
+        .from('reminders')
+        .update({
+            status: 'completed',
+            whatsapp_confirmed: true,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', data.id);
+
+    console.log('✅ Update error:', updateError);
+    return data.id;
 };
