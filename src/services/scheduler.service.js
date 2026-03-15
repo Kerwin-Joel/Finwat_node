@@ -25,9 +25,7 @@ const buildReminderMessage = (reminder) => {
         : '';
 
     const recurrenceText = reminder.recurrence !== 'none'
-        ? `\n🔁 Recurrencia: ${
-            { daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual' }[reminder.recurrence]
-          }`
+        ? `\n🔁 Recurrencia: ${{ daily: 'Diaria', weekly: 'Semanal', monthly: 'Mensual' }[reminder.recurrence]}`
         : '';
 
     return `${typeEmoji} *Recordatorio Finwat*\n\n` +
@@ -39,8 +37,7 @@ const buildReminderMessage = (reminder) => {
 };
 
 export const startScheduler = () => {
-    // Corre cada hora en punto
-    cron.schedule('* * * * *', async () => {
+    cron.schedule('*/5 * * * *', async () => {
         console.log('⏰ Scheduler: verificando recordatorios...');
         try {
             const reminders = await getPendingRemindersToNotify();
@@ -56,6 +53,7 @@ export const startScheduler = () => {
                         text: buildReminderMessage(reminder),
                     });
                     console.log(`✅ Notificado: ${reminder.title} → ${phone}`);
+                    await markReminderNotified(reminder.id);
                 } catch (err) {
                     console.error(`❌ Error enviando a ${phone}:`, err.message);
                 }
@@ -65,5 +63,5 @@ export const startScheduler = () => {
         }
     });
 
-    console.log('✅ Scheduler iniciado — verificando recordatorios cada hora');
+    console.log('✅ Scheduler iniciado — verificando recordatorios cada 5 minutos');
 };
