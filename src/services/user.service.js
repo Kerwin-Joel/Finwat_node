@@ -31,6 +31,40 @@ export const getDefaultAccount = async (userId) => {
 };
 
 // Guardar transacción desde WhatsApp
+// export const saveTransaction = async ({ userId, accountId, transaction }) => {
+//   const { data, error } = await supabase
+//     .from('transactions')
+//     .insert({
+//       user_id: userId,
+//       account_id: accountId,
+//       type: transaction.tipo === 'ingreso_dinero' ? 'income' : 'expense',
+//       amount: transaction.monto,
+//       currency: transaction.moneda ?? 'PEN',
+//       category: transaction.categoria?.toUpperCase() ?? 'OTROS',
+//       description: transaction.descripcion,
+//       transaction_date: transaction.fecha ?? new Date().toISOString().split('T')[0],
+//       source: 'whatsapp',
+//       status: 'completed',
+//     })
+//     .select()
+//     .single();
+
+//   if (error) throw error;
+
+//   // ✅ Actualizar balance en accounts
+//   const balanceChange = transaction.tipo === 'ingreso_dinero' ? transaction.monto : -transaction.monto;
+
+//   const { error: balanceError } = await supabase.rpc('update_account_balance', {
+//     p_account_id: accountId,
+//     p_amount: balanceChange,
+//   });
+
+//   if (balanceError) throw balanceError;
+
+//   return data;
+// };
+
+// Guardar transacción desde WhatsApp
 export const saveTransaction = async ({ userId, accountId, transaction }) => {
   const { data, error } = await supabase
     .from('transactions')
@@ -51,15 +85,6 @@ export const saveTransaction = async ({ userId, accountId, transaction }) => {
 
   if (error) throw error;
 
-  // ✅ Actualizar balance en accounts
-  const balanceChange = transaction.tipo === 'ingreso_dinero' ? transaction.monto : -transaction.monto;
-
-  const { error: balanceError } = await supabase.rpc('update_account_balance', {
-    p_account_id: accountId,
-    p_amount: balanceChange,
-  });
-
-  if (balanceError) throw balanceError;
-
+  // ✅ El trigger sync_account_balance actualiza automáticamente
   return data;
 };
