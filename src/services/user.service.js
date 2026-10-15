@@ -17,6 +17,36 @@ export const findUserByPhone = async (phone) => {
   return data;
 };
 
+// Buscar usuario por BSUID de WhatsApp (usuarios con username, sin teléfono en el webhook)
+export const findUserByWhatsAppId = async (bsuid) => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, phone, is_active')
+    .eq('whatsapp_user_id', bsuid)
+    .maybeSingle();
+
+  if (error) {
+    console.error('❌ Error buscando BSUID (¿existe profiles.whatsapp_user_id?):', error.message);
+    return null;
+  }
+  return data;
+};
+
+// Guardar el BSUID en el perfil para reconocer al usuario aunque Meta oculte su teléfono
+export const linkWhatsAppId = async (userId, bsuid) => {
+  const { error } = await supabase
+    .from('profiles')
+    .update({ whatsapp_user_id: bsuid })
+    .eq('id', userId);
+
+  if (error) {
+    console.error('❌ Error vinculando BSUID:', error.message);
+    return false;
+  }
+  console.log(`🔗 BSUID ${bsuid} vinculado al perfil ${userId}`);
+  return true;
+};
+
 // Obtener cuenta principal del usuario
 export const getDefaultAccount = async (userId) => {
   const { data, error } = await supabase

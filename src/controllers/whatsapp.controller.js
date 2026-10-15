@@ -1,12 +1,50 @@
-import { sendWhatsAppMessage } from '../services/whatsapp.service.js';
+import { sendWhatsAppMessage, sendContactInfoRequest } from '../services/whatsapp.service.js';
 import { analyzeIntent } from '../services/ai.service.js';
-import { findUserByPhone, getDefaultAccount, saveTransaction } from '../services/user.service.js';
+import { findUserByPhone, findUserByWhatsAppId, linkWhatsAppId, getDefaultAccount, saveTransaction } from '../services/user.service.js';
 import { checkRateLimit } from '../services/ratelimit.service.js';
 import { confirmReminderByWhatsApp } from '../services/reminder.service.js';
 import { getPendingRemindersByUser, confirmReminderById } from '../services/reminder.service.js';
 
 const processedMessages = new Set();
 const reminderSessions = new Map()
+// BSUIDs ya guardados en este proceso, para no actualizar el perfil en cada mensaje
+const linkedIds = new Set();
+
+const handleSharedContact = async ({ message, bsuid, from }) => {
+  const shared = message.contacts?.[0];
+
+  // Solo confiar en el número si viene del botón de WhatsApp; un vCard enviado a mano puede ser de otra persona
+  if (shared?.origin !== 'contact_request') {
+    console.log('📇 Contacto compartido ignorado (origin:', shared?.origin, ')');
+    return;
+  }
+
+  const sharedPhone = shared.phones?.[0]?.wa_id ?? shared.phones?.[0]?.phone?.replace(/\D/g, '');
+  if (!sharedPhone || !bsuid) {
+    console.error('❌ Contacto compartido sin número o BSUID:', JSON.stringify(message));
+    return;
+  }
+
+  const user = await findUserByPhone(sharedPhone);
+  if (!user) {
+    await sendWhatsAppMessage({
+      to: from,
+      text: '👋 No encontré una cuenta Finwat con ese número.\n\nRegístrate en nuestra app para empezar a gestionar tus finanzas por WhatsApp 📱\n\nhttps://finwat.app',
+    });
+    return;
+  }
+
+  const linked = await linkWhatsAppId(user.id, bsuid);
+  if (linked) linkedIds.add(bsuid);
+
+  const nombre = user.full_name?.split(' ')[0] ?? 'amigo';
+  await sendWhatsAppMessage({
+    to: from,
+    text: linked
+      ? `✅ *¡Listo ${nombre}!* Tu WhatsApp quedó vinculado a tu cuenta Finwat.\n\nYa puedes registrar tus gastos e ingresos, por ejemplo: "Gané 34 soles del trabajo"`
+      : '❌ No pude vincular tu cuenta. Intenta de nuevo más tarde.',
+  });
+};
 
 export const verifyWebhook = (req, res) => {
   const mode = req.query['hub.mode'];
@@ -26,8 +64,8 @@ export const receiveMessage = async ( req, res ) => {
   try {
     const value = req.body.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
-    if ( !message || message.type !== 'text' ) return;
-    
+    if ( !message || !['text', 'contacts'].includes(message.type) ) return;
+
     const messageId = message.id;
 
     // ✅ Si ya procesamos este mensaje, ignorarlo
@@ -40,15 +78,25 @@ export const receiveMessage = async ( req, res ) => {
     // Limpiar mensajes viejos cada 1000 para no llenar memoria
     if (processedMessages.size > 1000) processedMessages.clear();
 
-    // Meta puede omitir `from` (p. ej. usuarios con username de WhatsApp); usar wa_id de contacts
-    const from = message.from ?? value.contacts?.[0]?.wa_id;
-    const text = message.text?.body?.trim();
-    if (!text) return;
+    // Usuarios con username de WhatsApp: Meta puede omitir el teléfono y solo mandar el BSUID
+    const phone = message.from ?? value.contacts?.[0]?.wa_id;
+    const bsuid = message.from_user_id ?? value.contacts?.[0]?.user_id;
+    // Destino de las respuestas: teléfono si lo hay, si no el BSUID
+    const from = phone ?? bsuid;
 
     if (!from) {
-      console.error('❌ Mensaje sin número de remitente:', JSON.stringify({ message, contacts: value.contacts }));
+      console.error('❌ Mensaje sin remitente:', JSON.stringify({ message, contacts: value.contacts }));
       return;
     }
+
+    // El usuario tocó el botón "compartir número" → vincular su BSUID al perfil
+    if (message.type === 'contacts') {
+      await handleSharedContact({ message, bsuid, from });
+      return;
+    }
+
+    const text = message.text?.body?.trim();
+    if (!text) return;
 
     console.log(`📩 De: ${from} | Mensaje: ${text}`);
 
@@ -62,14 +110,30 @@ export const receiveMessage = async ( req, res ) => {
       return;
     }
 
-    // 2️⃣ Verificar usuario registrado
-    const user = await findUserByPhone(from);
+    // 2️⃣ Verificar usuario registrado (por teléfono o por BSUID ya vinculado)
+    let user = phone ? await findUserByPhone(phone) : null;
+    if (!user && bsuid) user = await findUserByWhatsAppId(bsuid);
+
+    if (!user && !phone) {
+      // No sabemos quién es: pedirle que comparta su número para vincular la cuenta
+      await sendContactInfoRequest({
+        to: from,
+        text: '👋 ¡Hola! Para reconocer tu cuenta Finwat necesito tu número de teléfono.\n\nToca el botón para compartirlo. Solo se pide una vez 🔒',
+      });
+      return;
+    }
+
     if (!user) {
       await sendWhatsAppMessage({
         to: from,
         text: '👋 Hola! No estás registrado en Finwat.\n\nRegístrate en nuestra app para empezar a gestionar tus finanzas por WhatsApp 📱\n\nhttps://finwat.app',
       });
       return;
+    }
+
+    // Guardar el BSUID mientras Meta aún manda el teléfono (lo oculta tras 30 días sin interacción)
+    if (phone && bsuid && !linkedIds.has(bsuid)) {
+      if (await linkWhatsAppId(user.id, bsuid)) linkedIds.add(bsuid);
     }
 
     if (!user.is_active) {
