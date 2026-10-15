@@ -24,7 +24,8 @@ export const receiveMessage = async ( req, res ) => {
   // ✅ Responder 200 inmediatamente para evitar reintentos de Meta
   res.sendStatus(200);
   try {
-    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    const value = req.body.entry?.[0]?.changes?.[0]?.value;
+    const message = value?.messages?.[0];
     if ( !message || message.type !== 'text' ) return;
     
     const messageId = message.id;
@@ -39,9 +40,15 @@ export const receiveMessage = async ( req, res ) => {
     // Limpiar mensajes viejos cada 1000 para no llenar memoria
     if (processedMessages.size > 1000) processedMessages.clear();
 
-    const from = message.from;
+    // Meta puede omitir `from` (p. ej. usuarios con username de WhatsApp); usar wa_id de contacts
+    const from = message.from ?? value.contacts?.[0]?.wa_id;
     const text = message.text?.body?.trim();
     if (!text) return;
+
+    if (!from) {
+      console.error('❌ Mensaje sin número de remitente:', JSON.stringify({ message, contacts: value.contacts }));
+      return;
+    }
 
     console.log(`📩 De: ${from} | Mensaje: ${text}`);
 
