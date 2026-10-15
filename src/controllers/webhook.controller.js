@@ -5,8 +5,6 @@ export const verifyWebhook = ( req, res ) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-console.log("TOKEN ENV:", process.env.VERIFY_TOKEN);
-console.log("TOKEN META:", req.query["hub.verify_token"]);
 
   if (mode === "subscribe" && token === process.env.VERIFY_TOKEN) {
     console.log("✅ Webhook verificado por Meta");

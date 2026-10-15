@@ -5,6 +5,16 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY
 });
 
+// Modelo configurable: los modelos "preview" se retiran sin aviso
+export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
+
+// Resultado uniforme cuando el análisis falla, para no confundirlo con "0 transacciones"
+const analysisError = (reason, detail) => ({
+  tipo_mensaje: "error",
+  transacciones: [],
+  error: { reason, detail },
+});
+
 export const analyzeIntent = async (text) => {
   try {
     const prompt = `
@@ -107,19 +117,37 @@ Mensaje del usuario: "${text}"
 `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: GEMINI_MODEL,
       contents: prompt,
     });
 
-    const raw = response.text;
+    const raw = response.text ?? "";
 
     const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) return { intent: "unknown" };
+    if (!match) {
+      console.error(`❌ Gemini (${GEMINI_MODEL}) respondió sin JSON:`, raw.slice(0, 500));
+      return analysisError("respuesta_sin_json", raw.slice(0, 500));
+    }
 
-    return JSON.parse(match[0]);
+    let parsed;
+    try {
+      parsed = JSON.parse(match[0]);
+    } catch (parseErr) {
+      console.error(`❌ Gemini (${GEMINI_MODEL}) devolvió JSON inválido:`, parseErr.message, match[0].slice(0, 500));
+      return analysisError("json_invalido", parseErr.message);
+    }
+
+    if (!parsed.tipo_mensaje) {
+      console.error(`❌ Gemini (${GEMINI_MODEL}) devolvió JSON sin tipo_mensaje:`, match[0].slice(0, 500));
+      return analysisError("json_incompleto", match[0].slice(0, 500));
+    }
+
+    return { ...parsed, transacciones: parsed.transacciones ?? [] };
 
   } catch (err) {
-    console.error("❌ Gemini error:", err.message);
-    return { intent: err.message };
+    // err.status / err.message traen el motivo real: modelo retirado (404),
+    // API key inválida (400/403), cuota agotada (429), etc.
+    console.error(`❌ Gemini error (modelo ${GEMINI_MODEL}) [${err.status ?? "sin status"}]:`, err.message);
+    return analysisError("gemini_api", `${err.status ?? ""} ${err.message}`.trim());
   }
 };

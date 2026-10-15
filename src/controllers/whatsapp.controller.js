@@ -186,6 +186,16 @@ if (esConfirmacion) {
     const intent = await analyzeIntent(text);
     console.log('🤖 Gemini:', JSON.stringify(intent));
 
+    // Fallo técnico de Gemini: no es culpa del mensaje del usuario
+    if (intent.tipo_mensaje === 'error') {
+      console.error(`❌ Análisis fallido para ${from} [${intent.error?.reason}]:`, intent.error?.detail);
+      await sendWhatsAppMessage({
+        to: from,
+        text: '⚠️ Tuve un problema técnico al analizar tu mensaje y no se registró nada.\n\nIntenta de nuevo en unos minutos o regístralo desde la app.',
+      });
+      return;
+    }
+
     // 5️⃣ Procesar según intent
     if (intent.tipo_mensaje === 'consulta_balance') {
       await sendWhatsAppMessage({
@@ -205,23 +215,38 @@ if (esConfirmacion) {
 
     // 6️⃣ Guardar transacciones
     const transacciones = intent.transacciones ?? [];
+    const validas = transacciones.filter(tx => Number(tx.monto) > 0);
     const resultados = [];
+    let fallidas = 0;
 
-    for (const tx of transacciones) {
-      if (!tx.monto || tx.monto <= 0) continue;
-      const saved = await saveTransaction({
-        userId: user.id,
-        accountId: account.id,
-        transaction: tx,
-      });
-      resultados.push(saved);
+    for (const tx of validas) {
+      try {
+        const saved = await saveTransaction({
+          userId: user.id,
+          accountId: account.id,
+          transaction: { ...tx, monto: Number(tx.monto) },
+        });
+        resultados.push(saved);
+      } catch (saveErr) {
+        fallidas++;
+        console.error(`❌ Error guardando transacción de ${from}:`, saveErr.message ?? saveErr, JSON.stringify(tx));
+      }
     }
 
     // 7️⃣ Responder con resumen
+    if (validas.length === 0) {
+      // Gemini respondió bien, pero no encontró montos en el mensaje
+      await sendWhatsAppMessage({
+        to: from,
+        text: '🤔 No encontré un monto en tu mensaje. Prueba con algo como:\n\n• "Gasté 50 en almuerzo"\n• "Me pagaron 4000 de un proyecto"',
+      });
+      return;
+    }
+
     if (resultados.length === 0) {
       await sendWhatsAppMessage({
         to: from,
-        text: '⚠️ No pude registrar la transacción. Intenta con un mensaje más claro.',
+        text: '⚠️ Entendí tu mensaje, pero hubo un error al guardarlo y no se registró nada. Intenta de nuevo en unos minutos.',
       });
       return;
     }
@@ -231,9 +256,13 @@ if (esConfirmacion) {
       return `${emoji} ${tx.description} — S/. ${tx.amount.toFixed(2)}`;
     }).join('\n');
 
+    const aviso = fallidas > 0
+      ? `\n\n⚠️ ${fallidas} transacción(es) no se pudieron guardar. Revísalas en la app.`
+      : '';
+
     await sendWhatsAppMessage({
       to: from,
-      text: `✅ Registrado exitosamente:\n\n${resumen}\n\n_Escribe "balance" para ver tu saldo_`,
+      text: `✅ Registrado exitosamente:\n\n${resumen}${aviso}\n\n_Escribe "balance" para ver tu saldo_`,
     });
 
     return;
