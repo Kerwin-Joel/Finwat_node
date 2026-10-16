@@ -8,6 +8,45 @@ const ai = new GoogleGenAI({
 // Modelo configurable: los modelos "preview" se retiran sin aviso
 export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
 
+// Respaldo estable si el principal está saturado (503) o retirado (404)
+export const GEMINI_FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash";
+
+// Errores temporales de Gemini: vale la pena reintentar
+const RETRYABLE_STATUS = new Set([429, 500, 503, 504]);
+const ATTEMPTS_PER_MODEL = 3;
+const BASE_DELAY_MS = 1000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Reintenta con backoff exponencial y luego pasa al modelo de respaldo
+const generateWithRetry = async (prompt) => {
+  const models = [...new Set([GEMINI_MODEL, GEMINI_FALLBACK_MODEL])];
+  let lastErr;
+
+  for (const model of models) {
+    for (let attempt = 1; attempt <= ATTEMPTS_PER_MODEL; attempt++) {
+      try {
+        const response = await ai.models.generateContent({ model, contents: prompt });
+        if (model !== GEMINI_MODEL || attempt > 1) {
+          console.log(`✅ Gemini respondió con ${model} (intento ${attempt})`);
+        }
+        return { response, model };
+      } catch (err) {
+        lastErr = err;
+        console.error(`⚠️ Gemini ${model} intento ${attempt}/${ATTEMPTS_PER_MODEL} [${err.status ?? "sin status"}]:`, err.message);
+
+        // 404 = modelo retirado; otros 4xx (API key, request) no se arreglan reintentando
+        if (!RETRYABLE_STATUS.has(err.status)) break;
+        if (attempt < ATTEMPTS_PER_MODEL) await sleep(BASE_DELAY_MS * 2 ** (attempt - 1));
+      }
+    }
+    // Solo tiene sentido cambiar de modelo si el fallo es del modelo (saturado o retirado)
+    if (lastErr && !RETRYABLE_STATUS.has(lastErr.status) && lastErr.status !== 404) break;
+  }
+
+  throw lastErr;
+};
+
 // Resultado uniforme cuando el análisis falla, para no confundirlo con "0 transacciones"
 const analysisError = (reason, detail) => ({
   tipo_mensaje: "error",
@@ -116,16 +155,13 @@ Salida:
 Mensaje del usuario: "${text}"
 `;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-    });
+    const { response, model } = await generateWithRetry(prompt);
 
     const raw = response.text ?? "";
 
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) {
-      console.error(`❌ Gemini (${GEMINI_MODEL}) respondió sin JSON:`, raw.slice(0, 500));
+      console.error(`❌ Gemini (${model}) respondió sin JSON:`, raw.slice(0, 500));
       return analysisError("respuesta_sin_json", raw.slice(0, 500));
     }
 
@@ -133,12 +169,12 @@ Mensaje del usuario: "${text}"
     try {
       parsed = JSON.parse(match[0]);
     } catch (parseErr) {
-      console.error(`❌ Gemini (${GEMINI_MODEL}) devolvió JSON inválido:`, parseErr.message, match[0].slice(0, 500));
+      console.error(`❌ Gemini (${model}) devolvió JSON inválido:`, parseErr.message, match[0].slice(0, 500));
       return analysisError("json_invalido", parseErr.message);
     }
 
     if (!parsed.tipo_mensaje) {
-      console.error(`❌ Gemini (${GEMINI_MODEL}) devolvió JSON sin tipo_mensaje:`, match[0].slice(0, 500));
+      console.error(`❌ Gemini (${model}) devolvió JSON sin tipo_mensaje:`, match[0].slice(0, 500));
       return analysisError("json_incompleto", match[0].slice(0, 500));
     }
 
@@ -147,7 +183,7 @@ Mensaje del usuario: "${text}"
   } catch (err) {
     // err.status / err.message traen el motivo real: modelo retirado (404),
     // API key inválida (400/403), cuota agotada (429), etc.
-    console.error(`❌ Gemini error (modelo ${GEMINI_MODEL}) [${err.status ?? "sin status"}]:`, err.message);
+    console.error(`❌ Gemini error (${GEMINI_MODEL} → ${GEMINI_FALLBACK_MODEL}) [${err.status ?? "sin status"}]:`, err.message);
     return analysisError("gemini_api", `${err.status ?? ""} ${err.message}`.trim());
   }
 };
